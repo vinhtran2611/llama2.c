@@ -303,7 +303,7 @@ void softmax(float* x, int size) {
 
 #include <omp.h>
 
-// Matrix multiplication with Multithreading
+// Matrix multiplication with Parallel Inner Loop
 void matmul(float* xout, float* x, float* w, int n, int d) {
     #pragma omp parallel for
     for (int i = 0; i < d; i++) {
@@ -316,6 +316,9 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         }
     }
 }
+
+
+
 
 
 // ================== END OPTIMIZE HERE ============================
