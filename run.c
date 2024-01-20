@@ -218,12 +218,12 @@ void softmax(float* x, int size) {
 
 // ================== BEGIN OPTIMIZE HERE ============================
 
-// Original
+// // Original
 // void matmul(float* xout, float* x, float* w, int n, int d) {
 //     // W (d,n) @ x (n,) -> xout (d,)
 //     // by far the most amount of time is spent inside this little function
 //     int i;
-//     // #pragma omp parallel for private(i)
+//     #pragma omp parallel for private(i)
 //     for (i = 0; i < d; i++) {
 //         float val = 0.0f;
 //         for (int j = 0; j < n; j++) {
@@ -233,48 +233,107 @@ void softmax(float* x, int size) {
 //     }
 // }
 
-// --------------- SIMD -----------------
-// #include <immintrin.h> // Include this header for SIMD intrinsics
-
+// // Optimize matmul using Loop Tiling
 // void matmul(float* xout, float* x, float* w, int n, int d) {
+//     const int tile_size = 64;
+
 //     #pragma omp parallel for
 //     for (int i = 0; i < d; i++) {
-//         float val = 0.0f;
-//         // Vectorization using AVX (256-bit)
-//         __m256 sum = _mm256_setzero_ps();
-//         for (int j = 0; j < n; j += 8) {
-//             __m256 x_vec = _mm256_loadu_ps(&x[j]);
-//             __m256 w_vec = _mm256_loadu_ps(&w[i * n + j]);
-//             sum = _mm256_add_ps(sum, _mm256_mul_ps(x_vec, w_vec));
+//         xout[i] = 0.0f;  // Initialize xout[i] to 0
+
+//         for (int jj = 0; jj < n; jj += tile_size) {
+//             float val = 0.0f;
+//             int end_j = jj + tile_size > n ? n : jj + tile_size;
+
+//             for (int j = jj; j < end_j; j++) {
+//                 val += w[i * n + j] * x[j];
+//             }
+
+//             xout[i] += val;
 //         }
-//         // Sum the elements in the vector
-//         val = sum[0] + sum[1] + sum[2] + sum[3] + sum[4] + sum[5] + sum[6] + sum[7];
-//         // Handle remaining elements (if any)
-//         for (int j = n - n % 8; j < n; j++) {
-//             val += w[i * n + j] * x[j];
-//         }
-//         xout[i] = val;
 //     }
 // }
 
-// ----------------Loop Tiling ----------
-void matmul(float* xout, float* x, float* w, int n, int d) {
-    const int tile_size = 64;
+// // Optimize matmul using Loop unrolling
+// void matmul(float* xout, float* x, float* w, int n, int d) {
+//     #pragma omp parallel for
+//     for (int i = 0; i < d; i++) {
+//         xout[i] = 0.0f;  // Initialize xout[i] to 0
 
+//         // Loop unrolling by a factor of 4
+//         int j;
+//         for (j = 0; j < n - 3; j += 4) {
+//             xout[i] += w[i * n + j] * x[j]
+//                      + w[i * n + j + 1] * x[j + 1]
+//                      + w[i * n + j + 2] * x[j + 2]
+//                      + w[i * n + j + 3] * x[j + 3];
+//         }
+
+//         // Handle remaining elements (if any)
+//         for (; j < n; j++) {
+//             xout[i] += w[i * n + j] * x[j];
+//         }
+//     }
+// }
+
+
+// // Optimized matrix multiplication using Loop Tiling (tile_size = 16) and Loop Unrolling (factor of 4)
+// void matmul(float* xout, float* x, float* w, int n, int d) {
+//     const int tile_size = 16;
+
+//     #pragma omp parallel for
+//     for (int i = 0; i < d; i++) {
+//         xout[i] = 0.0f;  // Initialize xout[i] to 0
+
+//         // Loop Tiling
+//         for (int jj = 0; jj < n; jj += tile_size) {
+//             float val = 0.0f;
+//             int end_j = jj + tile_size > n ? n : jj + tile_size;
+
+//             // Loop Unrolling by a factor of 4
+//             int j;
+//             for (j = jj; j < end_j - 3; j += 4) {
+//                 val += w[i * n + j] * x[j]
+//                      + w[i * n + j + 1] * x[j + 1]
+//                      + w[i * n + j + 2] * x[j + 2]
+//                      + w[i * n + j + 3] * x[j + 3];
+//             }
+
+//             // Handle remaining elements (if any) with the regular loop
+//             for (; j < end_j; j++) {
+//                 val += w[i * n + j] * x[j];
+//             }
+
+//             xout[i] += val;
+//         }
+//     }
+// }
+
+#include <immintrin.h>
+
+// Optimized matrix multiplication using SIMD
+void matmul(float* xout, float* x, float* w, int n, int d) {
     #pragma omp parallel for
     for (int i = 0; i < d; i++) {
-        xout[i] = 0.0f;  // Initialize xout[i] to 0
+        float val = 0.0f;
 
-        for (int jj = 0; jj < n; jj += tile_size) {
-            float val = 0.0f;
-            int end_j = jj + tile_size > n ? n : jj + tile_size;
-
-            for (int j = jj; j < end_j; j++) {
-                val += w[i * n + j] * x[j];
-            }
-
-            xout[i] += val;
+        // Vectorization using AVX (256-bit)
+        __m256 sum = _mm256_setzero_ps();
+        for (int j = 0; j < n; j += 8) {
+            __m256 x_vec = _mm256_loadu_ps(&x[j]);
+            __m256 w_vec = _mm256_loadu_ps(&w[i * n + j]);
+            sum = _mm256_add_ps(sum, _mm256_mul_ps(x_vec, w_vec));
         }
+
+        // Sum the elements in the vector
+        val = sum[0] + sum[1] + sum[2] + sum[3] + sum[4] + sum[5] + sum[6] + sum[7];
+
+        // Handle remaining elements (if any)
+        for (int j = n - n % 8; j < n; j++) {
+            val += w[i * n + j] * x[j];
+        }
+
+        xout[i] = val;
     }
 }
 
