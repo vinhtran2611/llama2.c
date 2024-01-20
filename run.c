@@ -233,29 +233,6 @@ void softmax(float* x, int size) {
 //     }
 // }
 
-// --------------- SIMD -----------------
-// #include <immintrin.h> // Include this header for SIMD intrinsics
-
-// void matmul(float* xout, float* x, float* w, int n, int d) {
-//     #pragma omp parallel for
-//     for (int i = 0; i < d; i++) {
-//         float val = 0.0f;
-//         // Vectorization using AVX (256-bit)
-//         __m256 sum = _mm256_setzero_ps();
-//         for (int j = 0; j < n; j += 8) {
-//             __m256 x_vec = _mm256_loadu_ps(&x[j]);
-//             __m256 w_vec = _mm256_loadu_ps(&w[i * n + j]);
-//             sum = _mm256_add_ps(sum, _mm256_mul_ps(x_vec, w_vec));
-//         }
-//         // Sum the elements in the vector
-//         val = sum[0] + sum[1] + sum[2] + sum[3] + sum[4] + sum[5] + sum[6] + sum[7];
-//         // Handle remaining elements (if any)
-//         for (int j = n - n % 8; j < n; j++) {
-//             val += w[i * n + j] * x[j];
-//         }
-//         xout[i] = val;
-//     }
-// }
 
 // ---------------- Loop Tiling ----------
 // void matmul(float* xout, float* x, float* w, int n, int d) {
@@ -301,40 +278,80 @@ void softmax(float* x, int size) {
 //     }
 // }
 
+
 // #include <omp.h>
 
-// // Matrix multiplication with Parallel Inner Loop
+// // Matrix multiplication with Parallel Outer Loop
 // void matmul(float* xout, float* x, float* w, int n, int d) {
 //     #pragma omp parallel for
 //     for (int i = 0; i < d; i++) {
 //         xout[i] = 0.0f;  // Initialize xout[i] to 0
 
-//         // Multithreaded loop for matrix multiplication
-//         #pragma omp parallel for reduction(+:xout[i])
+//         // Loop for matrix multiplication
 //         for (int j = 0; j < n; j++) {
+//             #pragma omp atomic
 //             xout[i] += w[i * n + j] * x[j];
 //         }
 //     }
 // }
 
-#include <omp.h>
+// // Optimized matrix multiplication using Loop Tiling (tile_size = 16) and Loop Unrolling (factor of 4)
+// void matmul(float* xout, float* x, float* w, int n, int d) {
+//     const int tile_size = 32;
 
-// Matrix multiplication with Parallel Outer Loop
+//     #pragma omp parallel for
+//     for (int i = 0; i < d; i++) {
+//         xout[i] = 0.0f;  // Initialize xout[i] to 0
+
+//         // Loop Tiling
+//         for (int jj = 0; jj < n; jj += tile_size) {
+//             float val = 0.0f;
+//             int end_j = jj + tile_size > n ? n : jj + tile_size;
+
+//             // Loop Unrolling by a factor of 4
+//             int j;
+//             for (j = jj; j < end_j - 3; j += 4) {
+//                 val += w[i * n + j] * x[j]
+//                      + w[i * n + j + 1] * x[j + 1]
+//                      + w[i * n + j + 2] * x[j + 2]
+//                      + w[i * n + j + 3] * x[j + 3];
+//             }
+
+//             // Handle remaining elements (if any) with the regular loop
+//             for (; j < end_j; j++) {
+//                 val += w[i * n + j] * x[j];
+//             }
+
+//             xout[i] += val;
+//         }
+//     }
+// }
+
+
+
+// --------------- SIMD -----------------
+#include <immintrin.h> // Include this header for SIMD intrinsics
+
 void matmul(float* xout, float* x, float* w, int n, int d) {
     #pragma omp parallel for
     for (int i = 0; i < d; i++) {
-        xout[i] = 0.0f;  // Initialize xout[i] to 0
-
-        // Loop for matrix multiplication
-        for (int j = 0; j < n; j++) {
-            #pragma omp atomic
-            xout[i] += w[i * n + j] * x[j];
+        float val = 0.0f;
+        // Vectorization using AVX (256-bit)
+        __m256 sum = _mm256_setzero_ps();
+        for (int j = 0; j < n; j += 8) {
+            __m256 x_vec = _mm256_loadu_ps(&x[j]);
+            __m256 w_vec = _mm256_loadu_ps(&w[i * n + j]);
+            sum = _mm256_add_ps(sum, _mm256_mul_ps(x_vec, w_vec));
         }
+        // Sum the elements in the vector
+        val = sum[0] + sum[1] + sum[2] + sum[3] + sum[4] + sum[5] + sum[6] + sum[7];
+        // Handle remaining elements (if any)
+        for (int j = n - n % 8; j < n; j++) {
+            val += w[i * n + j] * x[j];
+        }
+        xout[i] = val;
     }
 }
-
-
-
 
 
 
