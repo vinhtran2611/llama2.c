@@ -254,28 +254,60 @@ void softmax(float* x, int size) {
 //     }
 // }
 
-// Optimize matmul using Loop unrolling
+// // Optimize matmul using Loop unrolling
+// void matmul(float* xout, float* x, float* w, int n, int d) {
+//     #pragma omp parallel for
+//     for (int i = 0; i < d; i++) {
+//         xout[i] = 0.0f;  // Initialize xout[i] to 0
+
+//         // Loop unrolling by a factor of 4
+//         int j;
+//         for (j = 0; j < n - 3; j += 4) {
+//             xout[i] += w[i * n + j] * x[j]
+//                      + w[i * n + j + 1] * x[j + 1]
+//                      + w[i * n + j + 2] * x[j + 2]
+//                      + w[i * n + j + 3] * x[j + 3];
+//         }
+
+//         // Handle remaining elements (if any)
+//         for (; j < n; j++) {
+//             xout[i] += w[i * n + j] * x[j];
+//         }
+//     }
+// }
+
+
+// Optimized matrix multiplication using Loop Tiling (tile_size = 16) and Loop Unrolling (factor of 4)
 void matmul(float* xout, float* x, float* w, int n, int d) {
+    const int tile_size = 16;
+
     #pragma omp parallel for
     for (int i = 0; i < d; i++) {
         xout[i] = 0.0f;  // Initialize xout[i] to 0
 
-        // Loop unrolling by a factor of 4
-        int j;
-        for (j = 0; j < n - 3; j += 4) {
-            xout[i] += w[i * n + j] * x[j]
+        // Loop Tiling
+        for (int jj = 0; jj < n; jj += tile_size) {
+            float val = 0.0f;
+            int end_j = jj + tile_size > n ? n : jj + tile_size;
+
+            // Loop Unrolling by a factor of 4
+            int j;
+            for (j = jj; j < end_j - 3; j += 4) {
+                val += w[i * n + j] * x[j]
                      + w[i * n + j + 1] * x[j + 1]
                      + w[i * n + j + 2] * x[j + 2]
                      + w[i * n + j + 3] * x[j + 3];
-        }
+            }
 
-        // Handle remaining elements (if any)
-        for (; j < n; j++) {
-            xout[i] += w[i * n + j] * x[j];
+            // Handle remaining elements (if any) with the regular loop
+            for (; j < end_j; j++) {
+                val += w[i * n + j] * x[j];
+            }
+
+            xout[i] += val;
         }
     }
 }
-
 
 
 
