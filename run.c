@@ -7,12 +7,14 @@
 #include <math.h>
 #include <string.h>
 #include <fcntl.h>
+#include <stdint.h>
 #if defined _WIN32
     #include "win.h"
 #else
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+// #include <linux/time.h>
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -214,19 +216,70 @@ void softmax(float* x, int size) {
     }
 }
 
+// ================== BEGIN OPTIMIZE HERE ============================
+
+// Original
+// void matmul(float* xout, float* x, float* w, int n, int d) {
+//     // W (d,n) @ x (n,) -> xout (d,)
+//     // by far the most amount of time is spent inside this little function
+//     int i;
+//     // #pragma omp parallel for private(i)
+//     for (i = 0; i < d; i++) {
+//         float val = 0.0f;
+//         for (int j = 0; j < n; j++) {
+//             val += w[i * n + j] * x[j];
+//         }
+//         xout[i] = val;
+//     }
+// }
+
+// --------------- SIMD -----------------
+// #include <immintrin.h> // Include this header for SIMD intrinsics
+
+// void matmul(float* xout, float* x, float* w, int n, int d) {
+//     #pragma omp parallel for
+//     for (int i = 0; i < d; i++) {
+//         float val = 0.0f;
+//         // Vectorization using AVX (256-bit)
+//         __m256 sum = _mm256_setzero_ps();
+//         for (int j = 0; j < n; j += 8) {
+//             __m256 x_vec = _mm256_loadu_ps(&x[j]);
+//             __m256 w_vec = _mm256_loadu_ps(&w[i * n + j]);
+//             sum = _mm256_add_ps(sum, _mm256_mul_ps(x_vec, w_vec));
+//         }
+//         // Sum the elements in the vector
+//         val = sum[0] + sum[1] + sum[2] + sum[3] + sum[4] + sum[5] + sum[6] + sum[7];
+//         // Handle remaining elements (if any)
+//         for (int j = n - n % 8; j < n; j++) {
+//             val += w[i * n + j] * x[j];
+//         }
+//         xout[i] = val;
+//     }
+// }
+
+// ----------------Loop Tiling ----------
 void matmul(float* xout, float* x, float* w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
-    int i;
-    #pragma omp parallel for private(i)
-    for (i = 0; i < d; i++) {
-        float val = 0.0f;
-        for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
+    const int tile_size = 64;
+
+    #pragma omp parallel for
+    for (int i = 0; i < d; i++) {
+        xout[i] = 0.0f;  // Initialize xout[i] to 0
+
+        for (int jj = 0; jj < n; jj += tile_size) {
+            float val = 0.0f;
+            int end_j = jj + tile_size > n ? n : jj + tile_size;
+
+            for (int j = jj; j < end_j; j++) {
+                val += w[i * n + j] * x[j];
+            }
+
+            xout[i] += val;
         }
-        xout[i] = val;
     }
 }
+
+
+// ================== END OPTIMIZE HERE ============================
 
 float* forward(Transformer* transformer, int token, int pos) {
 
