@@ -301,21 +301,38 @@ void softmax(float* x, int size) {
 //     }
 // }
 
+// #include <omp.h>
+
+// // Matrix multiplication with Parallel Inner Loop
+// void matmul(float* xout, float* x, float* w, int n, int d) {
+//     #pragma omp parallel for
+//     for (int i = 0; i < d; i++) {
+//         xout[i] = 0.0f;  // Initialize xout[i] to 0
+
+//         // Multithreaded loop for matrix multiplication
+//         #pragma omp parallel for reduction(+:xout[i])
+//         for (int j = 0; j < n; j++) {
+//             xout[i] += w[i * n + j] * x[j];
+//         }
+//     }
+// }
+
 #include <omp.h>
 
-// Matrix multiplication with Parallel Inner Loop
+// Matrix multiplication with Parallel Outer Loop
 void matmul(float* xout, float* x, float* w, int n, int d) {
     #pragma omp parallel for
     for (int i = 0; i < d; i++) {
         xout[i] = 0.0f;  // Initialize xout[i] to 0
 
-        // Multithreaded loop for matrix multiplication
-        #pragma omp parallel for reduction(+:xout[i])
+        // Loop for matrix multiplication
         for (int j = 0; j < n; j++) {
+            #pragma omp atomic
             xout[i] += w[i * n + j] * x[j];
         }
     }
 }
+
 
 
 
