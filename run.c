@@ -218,20 +218,46 @@ void softmax(float* x, int size) {
 
 // ================== BEGIN OPTIMIZE HERE ============================
 
-// Original
+// // Original
+// void matmul(float* xout, float* x, float* w, int n, int d) {
+//     // W (d,n) @ x (n,) -> xout (d,)
+//     // by far the most amount of time is spent inside this little function
+//     int i;
+//     #pragma omp parallel for private(i)
+//     for (i = 0; i < d; i++) {
+//         float val = 0.0f;
+//         for (int j = 0; j < n; j++) {
+//             val += w[i * n + j] * x[j];
+//         }
+//         xout[i] = val;
+//     }
+// }
+
+// Optimize matmul using Loop Tiling
 void matmul(float* xout, float* x, float* w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
-    int i;
-    #pragma omp parallel for private(i)
-    for (i = 0; i < d; i++) {
-        float val = 0.0f;
-        for (int j = 0; j < n; j++) {
-            val += w[i * n + j] * x[j];
+    const int tile_size = 64;
+
+    #pragma omp parallel for
+    for (int i = 0; i < d; i++) {
+        xout[i] = 0.0f;  // Initialize xout[i] to 0
+
+        for (int jj = 0; jj < n; jj += tile_size) {
+            float val = 0.0f;
+            int end_j = jj + tile_size > n ? n : jj + tile_size;
+
+            for (int j = jj; j < end_j; j++) {
+                val += w[i * n + j] * x[j];
+            }
+
+            xout[i] += val;
         }
-        xout[i] = val;
     }
 }
+
+
+
+
+
 
 // ================== END OPTIMIZE HERE ============================
 
